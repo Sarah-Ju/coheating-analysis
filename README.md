@@ -43,4 +43,4 @@ Bauwens, G., & Roels, S. (2014). Co-heating test: A state-of-the-art. Energy and
 https://doi.org/10.1016/j.enbuild.2014.04.039
 
 ## License
-Creative Commons BY-NC-SA
+MIT
