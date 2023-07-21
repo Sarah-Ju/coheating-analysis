@@ -7,7 +7,7 @@ CoHeating is a Python library to analyse data from a coheating test.
 to be defined
 
 ```bash
-# pip install ???
+python setup.py install
 ```
 
 ## Usage
