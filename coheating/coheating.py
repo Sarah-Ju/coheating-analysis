@@ -5,7 +5,6 @@ from coheating.utils import quick_least_squares
 import math
 import sklearn
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
 
 class Coheating:
     """
