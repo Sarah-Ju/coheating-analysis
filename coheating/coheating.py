@@ -18,16 +18,7 @@ class Coheating:
 
     The analysis is performed in agreement with Gori et al (2023) and within the guidelines of Bauwens and Roels (2012)
     """
-    
-    def quick_least_squares(endog, exog):
-        """
-        :param endog:
-        :param exog:
-        :return:
-        """
-        quick_ols = OLS(endog=endog, exog=exog).fit()
-        return quick_ols.params[0]
-    
+       
     
     def __init__(self, temp_diff, heating_power, sol_radiation,
                  uncertainty_sensor_calibration={'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95},
