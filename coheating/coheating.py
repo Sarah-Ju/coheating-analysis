@@ -1,10 +1,15 @@
 from statsmodels.api import OLS
+import math 
 import pandas as pd
 import numpy as np
-from coheating.utils import quick_least_squares
-import math
+from eppy.modeleditor import IDF
+import matplotlib.pyplot as plt
 import sklearn
 from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+import os
+import subprocess
+
 
 class Coheating:
     """
@@ -13,6 +18,17 @@ class Coheating:
 
     The analysis is performed in agreement with Gori et al (2023) and within the guidelines of Bauwens and Roels (2012)
     """
+    
+    def quick_least_squares(endog, exog):
+        """
+        :param endog:
+        :param exog:
+        :return:
+        """
+        quick_ols = OLS(endog=endog, exog=exog).fit()
+        return quick_ols.params[0]
+    
+    
     def __init__(self, temp_diff, heating_power, sol_radiation,
                  uncertainty_sensor_calibration={'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95},
                  uncertainty_spatial={'Ti': 0.5},
@@ -52,7 +68,7 @@ class Coheating:
         self.u_HTC_calib = None
 
         # set method used. Defaults to multilinear regression
-        self.method_used = method
+#        self.method_used = method
         # whether to use solar irradiation in the regression. Defaults to True
         self.isol_is_used = use_isol
 
@@ -63,13 +79,14 @@ class Coheating:
         """
         # f update_var not None:
         #    self.update_var.key += update_var.values
-        #self.method_used = 'multilinear regression'
+        self.method_used = 'multilinear regression'
         mls_unbiased = OLS(endog=self.Ph,
                            exog=np.array([self.temp_diff, self.Isol]).T
                            ).fit()
         p_value_isol = mls_unbiased.pvalues[1]
 
         if p_value_isol < 0.05 or force_isol:
+            self.isol_is_used = True
             self.mls_result = mls_unbiased
             self.HTC = mls_unbiased.params[0]
             self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
@@ -82,12 +99,10 @@ class Coheating:
             self.mls_result = mls_unbiased
             self.HTC = mls_unbiased.params[0]
             self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
-        
-        
+
         #Determine uncertainty in input variables
         self.calculate_uncertainty_from_inputs()
 
-        
         #Determine Total derived uncertainty
         self.std_HTC = np.sqrt(self.u_HTC_stat ** 2 + self.u_HTC_calib ** 2)
         self.extended_coverage_HTC = 2 * self.std_HTC
@@ -95,66 +110,58 @@ class Coheating:
         self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC
 
         return
-
+    
+    
+    
+    
     def fit_siviour(self):
         """
         to do : method yet to be implemented
         :return:
         """
-         # f update_var not None:
-        #    self.update_var.key += update_var.values
-        #self.method_used = 'Siviour'
+        self.method_used = 'Siviour'
+        
+        mls_unbiased = OLS(endog=self.Ph_on_temp_diff,
+                           exog=sm.add_constant(self.Isol_on_temp_diff)
+                           ).fit()
+        self.isol_is_used = True
+        self.mls_result = mls_unbiased
 
+        self.HTC = mls_unbiased.params['const']
         
-        #Determine the regresssion with a constant
-        self.linear_regressor = LinearRegression(fit_intercept = True)
-        self.linear_regressor.fit(self.Isol_on_temp_diff, self.Ph_on_temp_diff)  # perform linear regression
-        self.HTC = self.linear_regressor.intercept_
-        self.Asw = self.linear_regressor.coef_[0]
-        
-        #Determine the person coefficent
-        self.covar = np.cov(np.squeeze(np.stack((self.Ph_on_temp_diff,self.Isol_on_temp_diff), axis=0), axis=(2,)))
-        self.person = (self.covar[0][1]**2/(self.covar[0][0]*self.covar[1][1]))
-        
-        #Determine statistical uncertainty
-        self.squared_independent_variable_across_n_data = math.sqrt(np.sum(self.Isol_on_temp_diff)/(self.data_length)
-        self.u_HTC_stat = math.sqrt( (np.var(self.Ph_on_temp_diff)*(1-self.person)) / (np.var(self.Isol_on_temp_diff) *(self.data_length-2)) ) *self.squared_independent_variable_across_n_data
+        self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
+
         
         #Determine uncertainty in input variables
         self.calculate_uncertainty_from_inputs()
-
 
         #Determine Total derived uncertainty
         self.std_HTC = np.sqrt(self.u_HTC_stat ** 2 + self.u_HTC_calib ** 2)
         self.extended_coverage_HTC = 2 * self.std_HTC
         self.error_HTC = self.extended_coverage_HTC / self.HTC * 100
-        self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC        
+        self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC
         
+        #        self.isol_is_used=True
         return
-
+ 
     
     def fit_simple(self):
         """
         to do : method yet to be implemented
         :return:
         """
-         # f update_var not None:
-        #    self.update_var.key += update_var.values
-        #self.method_used = 'simple'
         
-        
-        #Determine the regresssion with a constant
-        self.linear_regressor = LinearRegression(fit_intercept = False)
-        self.linear_regressor.fit(self.temp_diff, self.Ph)  # perform linear regression
-        self.HTC = self.linear_regressor.coef_[0]
-        
-        #Determine the person coefficent
-        self.covar = np.cov(np.squeeze(np.stack((self.Ph,self.temp_diff), axis=0), axis=(2,)))
-        self.person = (self.covar[0][1]**2/(self.covar[0][0]*self.covar[1][1]))
-        
-        #Determine statistical uncertainty
-        self.u_HTC_stat = math.sqrt( (np.var(self.Ph)*(1-self.person)) / (np.var(self.temp_diff) *(self.data_length-2)) )
+        self.method_used = 'simple'
+                
+        mls_unbiased = OLS(endog=self.Ph,
+                           exog=np.array([self.temp_diff]).T
+                           ).fit()
+        self.isol_is_used = False
+        self.mls_result = mls_unbiased
+        self.HTC = mls_unbiased.params[0]
+        self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
 
+        
         #Determine uncertainty in input variables
         self.calculate_uncertainty_from_inputs()
         
@@ -164,9 +171,9 @@ class Coheating:
         self.error_HTC = self.extended_coverage_HTC / self.HTC * 100
         self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC        
         
-        return    
-    
-    
+        self.isol_is_used=False
+        
+        return   
 
     
     def _calculate_sensitivity_coef(self, input_var_name, u):
@@ -205,50 +212,58 @@ class Coheating:
         if self.method_used == 'Siviour' :
             self.linear_regressor = LinearRegression(fit_intercept = True)
             # if variable is a heating power
-            if input_var_name == 'Ph':
-                sens_coef = (self.linear_regressor.fit( self.Isol_on_temp_diff,
-                                                       ((self.Ph + u[input_var_name] )/ self.temp_diff)).intercept_
-                             - self.linear_regressor.fit( self.Isol_on_temp_diff,
-                                                         ((self.Ph - u[input_var_name] )/ self.temp_diff)).intercept_
-                            )/ (2 * u[input_var_name])
-            
+            if input_var_name == 'Ph':                             
+                             
+                sens_coef =( OLS(endog=(self.Ph + u[input_var_name])/self.temp_diff,
+                                 exog=sm.add_constant(self.Isol_on_temp_diff)
+                                 ).fit().params['const'] 
+                            - OLS(endog=(self.Ph - u[input_var_name])/self.temp_diff,
+                                  exog=sm.add_constant(self.Isol_on_temp_diff)
+                            ).fit().params['const']
+                            )/(2 * u[input_var_name])
+                
+                
             # if variable is a temperature
 
-            elif input_var_name == 'Ti' or input_var_name == 'Te':         
-                sens_coef = (self.linear_regressor.fit( (self.Isol / (self.temp_diff + u[input_var_name])),
-                                                       self.Ph_on_temp_diff).intercept_
-                             - self.linear_regressor.fit( (self.Isol / (self.temp_diff - u[input_var_name])),
-                                                         self.Ph_on_temp_diff).intercept_
-                            )/ (2 * u[input_var_name])
+            elif input_var_name == 'Ti' or input_var_name == 'Te':                                      
+                             
+                sens_coef =( OLS(endog=(self.Ph )/(self.temp_diff+ u[input_var_name]),
+                                 exog=sm.add_constant(self.Isol /(self.temp_diff + u[input_var_name]))
+                                 ).fit().params['const'] 
+                            - OLS(endog=(self.Ph )/(self.temp_diff- u[input_var_name]),
+                                  exog=sm.add_constant(self.Isol /(self.temp_diff - u[input_var_name]))
+                            ).fit().params['const']
+                            )/(2 * u[input_var_name])
+    
     
             # if variable is a solar radiation
             elif input_var_name == 'Isol':
-                sens_coef = (self.linear_regressor.fit( (self.Isol + u[input_var_name] ) / self.temp_diff,
-                                                       self.Ph_on_temp_diff).intercept_
-                             - self.linear_regressor.fit( (self.Isol - u[input_var_name] ) / self.temp_diff ,
-                                                         self.Ph_on_temp_diff).intercept_
-                            )/ (2 * u[input_var_name])
+                             
+                sens_coef =( OLS(endog=self.Ph_on_temp_diff,
+                                 exog=sm.add_constant((self.Isol + u[input_var_name])/self.temp_diff)
+                                 ).fit().params['const'] 
+                            - OLS(endog=self.Ph_on_temp_diff,
+                                  exog=sm.add_constant((self.Isol - u[input_var_name])/self.temp_diff)
+                            ).fit().params['const']
+                            )/(2 * u[input_var_name])
         
         
-        
-        if self.method_used == 'simple' :
+        if self.method_used == 'simple' or (self.method_used =='multilinear regression' and  self.isol_is_used==False):
             self.linear_regressor = LinearRegression(fit_intercept = False)
             # if variable is a heating power
-            if input_var_name == 'Ph':
-                sens_coef = (self.linear_regressor.fit( self.temp_diff,
-                                                       (self.Ph + u[input_var_name] )).coef_[0]
-                             - self.linear_regressor.fit( self.temp_diff,
-                                                         (self.Ph - u[input_var_name] )).coef_[0]
-                            )/ (2 * u[input_var_name])
-            
-            # if variable is a temperature
-
-            elif input_var_name == 'Ti' or input_var_name == 'Te':         
-                sens_coef = (self.linear_regressor.fit( (self.temp_diff + u[input_var_name]),
-                                                       self.Ph).coef_[0]
-                             - self.linear_regressor.fit( (self.temp_diff - u[input_var_name]),
-                                                       self.Ph).coef_[0]
-                            )/ (2 * u[input_var_name])            
+            if input_var_name == 'Ti' or input_var_name == 'Te':
+                sens_coef = (quick_least_squares(endog=self.Ph,
+                                                 exog=np.array([self.temp_diff + u[input_var_name]]).T)
+                             - quick_least_squares(endog=self.Ph,
+                                                   exog=np.array([self.temp_diff - u[input_var_name]]).T)
+                             ) / (2 * u[input_var_name])
+            # if variable is a heating power
+            elif input_var_name == 'Ph':
+                sens_coef = (quick_least_squares(endog=self.Ph + u[input_var_name],
+                                                 exog=np.array([self.temp_diff]).T)
+                             - quick_least_squares(endog=self.Ph - u[input_var_name],
+                                                   exog=np.array([self.temp_diff]).T)
+                             ) / (2 * u[input_var_name])  
         return sens_coef
 
 
