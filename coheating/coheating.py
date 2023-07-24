@@ -62,7 +62,7 @@ class Coheating:
         """
         # f update_var not None:
         #    self.update_var.key += update_var.values
-        self.method_used = 'multilinear regression'
+        #self.method_used = 'multilinear regression'
         mls_unbiased = OLS(endog=self.Ph,
                            exog=np.array([self.temp_diff, self.Isol]).T
                            ).fit()
@@ -102,7 +102,7 @@ class Coheating:
         """
          # f update_var not None:
         #    self.update_var.key += update_var.values
-        self.method_used = 'Siviour'
+        #self.method_used = 'Siviour'
 
         
         #Determine the regresssion with a constant
@@ -116,7 +116,8 @@ class Coheating:
         self.person = (self.covar[0][1]**2/(self.covar[0][0]*self.covar[1][1]))
         
         #Determine statistical uncertainty
-        self.u_HTC_stat = math.sqrt( (np.var(y)*(1-self.person)) / (np.var(x) *(self.data_length-2)) )
+        self.squared_independent_variable_across_n_data = math.sqrt(np.sum(self.Isol_on_temp_diff)/(self.data_length)
+        self.u_HTC_stat = math.sqrt( (np.var(self.Ph_on_temp_diff)*(1-self.person)) / (np.var(self.Isol_on_temp_diff) *(self.data_length-2)) ) *self.squared_independent_variable_across_n_data
         
         #Determine uncertainty in input variables
         self.calculate_uncertainty_from_inputs()
@@ -138,7 +139,7 @@ class Coheating:
         """
          # f update_var not None:
         #    self.update_var.key += update_var.values
-        self.method_used = 'simple'
+        #self.method_used = 'simple'
         
         
         #Determine the regresssion with a constant
