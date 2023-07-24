@@ -8,8 +8,8 @@ from sklearn.linear_model import LinearRegression
 
 class Coheating:
     """
-    the Co-Heating class loads data, provides Siviour or multilinear analysis
-    and calculates the uncretainty of the results.
+    the Co-Heating class loads data, provides Siviour, multilinear analysis or simple analysis
+    and calculates the uncertainty of the results.
 
     The analysis is performed in agreement with Gori et al (2023) and within the guidelines of Bauwens and Roels (2012)
     """
