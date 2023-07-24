@@ -1,15 +1,7 @@
 from statsmodels.api import OLS
-import math 
+import math
 import pandas as pd
 import numpy as np
-from eppy.modeleditor import IDF
-import matplotlib.pyplot as plt
-import sklearn
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
-import os
-import subprocess
-
 
 class Coheating:
     """
