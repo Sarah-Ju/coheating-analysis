@@ -11,13 +11,15 @@ class Coheating:
     the Co-Heating class loads data, provides Siviour, multilinear analysis or simple analysis
     and calculates the uncertainty of the results.
 
+    # todo proposer une ridge regression pour les var corrélées ??? voir sklearn
+
     The analysis is performed in agreement with Gori et al (2023) and within the guidelines of Bauwens and Roels (2012)
     """
 
     def __init__(self, temp_diff, heating_power, sol_radiation,
                  uncertainty_sensor_calibration={'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95},
                  uncertainty_spatial={'Ti': 0.5},
-                 method='multilinear regression',
+                 method='multilinear regression with model selection',
                  use_isol=True
                  ):
         """
@@ -35,8 +37,9 @@ class Coheating:
             input data uncertainty due to spatial dispersion of the measurand
         :param method: string,
             regression analysis method to use to analyse the coheating data :
-            'multilinear regression' or 'Siviour' or 'simple'
-            defaults to multilinear regression
+            'multilinear', 'Siviour', 'simple' or 'multilinear regression with model selection'
+            the model selection method chooses the most appropriate model between the simple linear and multilinear
+            defaults to multilinear regression with model selection
         :param use_isol: bool,
             whether to use the solar radiation or not
         """
@@ -66,34 +69,64 @@ class Coheating:
         self.error_HTC = None
         self.uncertainty_bounds_HTC = None
 
-    def fit(self):
+    def fit(self, method):
         """
 
         """
-        if self.method_used == "multilinear regression":
-            self.fit_multilin()
-        elif self.method_used == 'Siviour':
-            self.fit_siviour()
-        elif self.method_used == 'simple':
-            self.fit_simple()
+        # according to specified method, adjust endogeneous and exogeneous variables
+        self.__endog = 0
+        self.__exog = 0
+        if self.method_used == "multilinear regression with model selection":
+            self._linear_model_selection()
         else:
-            raise "method not implemented. Revise."
+            if self.method_used == 'Siviour':
+                self.__endog = self.Ph_on_temp_diff,
+                self.__exog = sm.add_constant(self.Isol_on_temp_diff)
+            elif self.method_used == 'simple':
+                self.__endog = self.Ph,
+                self.__exog = np.array([self.temp_diff]).T
+                self.isol_is_used = False
+            elif self.method_used == 'multilinear':
+                self.__endog = self.Ph,
+                self.__exog = np.array([self.temp_diff, self.Isol]).T
+            else:
+                raise "method not implemented. Revise."
+
+            # launch the OLS
+            if self.__endog != 0 and self.__exog != 0:
+                linreg = sm.OLS(endog=self.__endog,
+                                exog=self.__exog
+                                ).fit()
+
+                # get results and calculate uncertainty
+                self.mls_result = linreg
+                if self.method_used == 'Siviour':
+                    self.HTC = linreg.params['const']
+                else:
+                    self.HTC = linreg.params[0]
+
+                self.u_HTC_stat = np.sqrt(linreg.cov_params().iloc[0, 0])
+
+        # if an HTC calculation has been made
+        if not self.HTC:
+            # Determine uncertainty in input variables
+            self._calculate_uncertainty_from_inputs()
+
+            # Determine Total derived uncertainty
+            self._calculate_expanded_coverage()
         return
 
-    def fit_multilin(self, force_isol=False):
-        """uses OLS to infer an HTC value from given Series
-        unbiased !
+    def _linear_model_selection(self):
+        """
 
         """
-        # f update_var not None:
-        #    self.update_var.key += update_var.values
         self.method_used = 'multilinear regression'
         mls_unbiased = sm.OLS(endog=self.Ph,
                               exog=np.array([self.temp_diff, self.Isol]).T
                               ).fit()
         p_value_isol = mls_unbiased.pvalues[1]
 
-        if p_value_isol < 0.05 or force_isol:
+        if p_value_isol < 0.05:
             self.isol_is_used = True
             self.mls_result = mls_unbiased
             self.HTC = mls_unbiased.params[0]
@@ -104,80 +137,11 @@ class Coheating:
                                   exog=np.array([self.temp_diff]).T
                                   ).fit()
             self.isol_is_used = False
+            self.method_used = 'simple'
             self.mls_result = mls_unbiased
             self.HTC = mls_unbiased.params[0]
             self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
-
-        # Determine uncertainty in input variables
-        self.calculate_uncertainty_from_inputs()
-
-        # Determine Total derived uncertainty
-        self.std_HTC = np.sqrt(self.u_HTC_stat ** 2 + self.u_HTC_calib ** 2)
-        self.extended_coverage_HTC = 2 * self.std_HTC
-        self.error_HTC = self.extended_coverage_HTC / self.HTC * 100
-        self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC
-
         return
-
-    def fit_siviour(self):
-        """
-        applies the Siviour method to provide estimate of HTC
-
-        the Siviour method divides the heating power and the solar radiation by the temperature difference
-        the data is then analysed with a simple linear regression with intercept,
-        estimator given by an ordinary least squares
-
-        """
-        self.method_used = 'Siviour'
-        
-        mls_unbiased = sm.OLS(endog=self.Ph_on_temp_diff,
-                              exog=sm.add_constant(self.Isol_on_temp_diff)
-                              ).fit()
-        self.isol_is_used = True
-        self.mls_result = mls_unbiased
-
-        self.HTC = mls_unbiased.params['const']
-        
-        self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
-
-        # Determine uncertainty in input variables
-        self.calculate_uncertainty_from_inputs()
-
-        # Determine Total derived uncertainty
-        self.std_HTC = np.sqrt(self.u_HTC_stat ** 2 + self.u_HTC_calib ** 2)
-        self.extended_coverage_HTC = 2 * self.std_HTC
-        self.error_HTC = self.extended_coverage_HTC / self.HTC * 100
-        self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC
-        return
-
-    def fit_simple(self):
-        """
-        simple linear regression model to estimate HTC (by OLS)
-        solar radiation is excluded
-        :return:
-        """
-        self.method_used = 'simple'
-                
-        mls_unbiased = sm.OLS(endog=self.Ph,
-                              exog=np.array([self.temp_diff]).T
-                              ).fit()
-        self.isol_is_used = False
-        self.mls_result = mls_unbiased
-        self.HTC = mls_unbiased.params[0]
-        self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
-
-        # Determine uncertainty in input variables
-        self.calculate_uncertainty_from_inputs()
-        
-        # Determine Total derived uncertainty
-        self.std_HTC = np.sqrt(self.u_HTC_stat ** 2 + self.u_HTC_calib ** 2)
-        self.extended_coverage_HTC = 2 * self.std_HTC
-        self.error_HTC = self.extended_coverage_HTC / self.HTC * 100
-        self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC        
-        
-        self.isol_is_used = False
-        
-        return   
 
     def _calculate_sensitivity_coef(self, input_var_name, u):
         """calculates the sensitivity coefficients for the GUM uncertainty propagation
@@ -264,7 +228,7 @@ class Coheating:
                              ) / (2 * u[input_var_name])  
         return sens_coef
 
-    def calculate_uncertainty_from_inputs(self):
+    def _calculate_uncertainty_from_inputs(self):
         """
         uncertainty calculation based on Gori et al (2023)
 
@@ -295,10 +259,22 @@ class Coheating:
         self.u_HTC_calib = np.sqrt(var_h)
         return
 
+    def _calculate_expanded_coverage(self):
+        """ calculate the total final uncertainty
+
+        """
+        self.std_HTC = np.sqrt(self.u_HTC_stat ** 2 + self.u_HTC_calib ** 2)
+        self.extended_coverage_HTC = 2 * self.std_HTC
+        self.error_HTC = self.extended_coverage_HTC / self.HTC * 100
+        self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC
+        return
+
     def diag(self):
         """calculate all kind of diagnostics for a coheating
 
         # todo to implement !
+        # todo calculate Variance Inflation Factors (VIF)
+        # diag de corrélation des variabels explicatives
         """
 
         return
