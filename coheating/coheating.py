@@ -99,7 +99,7 @@ class Coheating:
                 raise "method not implemented. Revise."
 
             # launch the OLS
-            if self.__endog != 0 and self.__exog != 0:
+            if len(self.__endog) > 0 and len(self.__exog) > 0:
                 linreg = sm.OLS(endog=self.__endog,
                                 exog=self.__exog
                                 ).fit()
