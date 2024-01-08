@@ -87,7 +87,7 @@ class Coheating:
         else:
             if self.method_used == 'Siviour':
                 self.__endog = self.Ph_on_temp_diff,
-                self.__exog = sm.add_constant(self.Isol_on_temp_diff)
+                self.__exog = sm.add_constant(self.Isol_on_temp_diff.to_numpy())
             elif self.method_used == 'simple':
                 self.__endog = self.Ph,
                 self.__exog = np.array([self.temp_diff]).T
