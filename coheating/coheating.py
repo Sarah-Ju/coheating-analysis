@@ -109,7 +109,7 @@ class Coheating:
                 self.u_HTC_stat = np.sqrt(linreg.cov_params().iloc[0, 0])
 
         # if an HTC calculation has been made
-        if not self.HTC:
+        if self.HTC:
             # Determine uncertainty in input variables
             self._calculate_uncertainty_from_inputs()
 
