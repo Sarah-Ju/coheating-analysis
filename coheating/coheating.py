@@ -4,7 +4,7 @@ import math
 import pandas as pd
 import numpy as np
 
-from utils import quick_least_squares
+from .utils import quick_least_squares
 
 
 class Coheating:
@@ -301,7 +301,7 @@ class Coheating:
                                        self.isol_is_used,
                                        self.data_length
                                        ],
-                                 index=['HTC', 'extended coverage HTC',
+                                 index=['HTC', 'extended coverage interval',
                                         '2.5 % uncertainty bound',
                                         '97.5 % uncertainty bound',
                                         'error %',
