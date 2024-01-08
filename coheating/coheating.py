@@ -70,10 +70,15 @@ class Coheating:
         self.error_HTC = None
         self.uncertainty_bounds_HTC = None
 
-    def fit(self):
+    def fit(self, method=None):
+        """
+        method: stirng,
+            overrides the method defined at instance definition
         """
 
-        """
+        if method:
+            self.method_used = method
+
         # according to specified method, adjust endogeneous and exogeneous variables
         self.__endog = 0
         self.__exog = 0
