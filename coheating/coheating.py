@@ -260,12 +260,18 @@ class Coheating:
         self.u_HTC_calib = np.sqrt(var_h)
         return
 
-    def _calculate_expanded_coverage(self):
-        """ calculate the total final uncertainty
+    def _calculate_expanded_coverage(self, k=2):
+        """calculate the total final uncertainty
 
+        U = k * u where k is the coverage factor. GUM advises for k=2 or k=3.
+        Gori et al (2023) use k=2.
+
+        :param k: int
+            coverage factor
+        :return:
         """
         self.std_HTC = np.sqrt(self.u_HTC_stat ** 2 + self.u_HTC_calib ** 2)
-        self.extended_coverage_HTC = 2 * self.std_HTC
+        self.extended_coverage_HTC = k * self.std_HTC
         self.error_HTC = self.extended_coverage_HTC / self.HTC * 100
         self.uncertainty_bounds_HTC = self.HTC - self.extended_coverage_HTC, self.HTC + self.extended_coverage_HTC
         return
