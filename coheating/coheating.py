@@ -1,4 +1,5 @@
 import statsmodels.api as sm
+import statsmodels.stats as stats
 import math
 import pandas as pd
 import numpy as np
@@ -276,6 +277,8 @@ class Coheating:
         # todo calculate Variance Inflation Factors (VIF)
         # diag de corrélation des variabels explicatives
         """
+
+        #self._VIF = stats.outliers_influence.variance_inflation_factor(dataframe, name_column)
 
         return
 
