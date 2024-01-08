@@ -70,7 +70,7 @@ class Coheating:
         self.error_HTC = None
         self.uncertainty_bounds_HTC = None
 
-    def fit(self, method):
+    def fit(self):
         """
 
         """
