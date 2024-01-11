@@ -1,6 +1,4 @@
 import statsmodels.api as sm
-import statsmodels.stats as stats
-import math
 import pandas as pd
 import numpy as np
 
@@ -69,6 +67,21 @@ class Coheating:
         self.extended_coverage_HTC = None
         self.error_HTC = None
         self.uncertainty_bounds_HTC = None
+        self.AIC = None
+        self.model_selected = None
+
+        self.summary = pd.DataFrame(index=['HTC',
+                                           'extended coverage interval',
+                                           '2.5 % uncertainty bound',
+                                           '97.5 % uncertainty bound',
+                                           'error %',
+                                           'method used',
+                                           'AIC',
+                                           'Isol was used',
+                                           'number of samples'
+                                           ]
+                                    )
+        self.summary.index.name = 'Coheating result'
 
     def fit(self, method=None):
         """
@@ -82,21 +95,24 @@ class Coheating:
         # according to specified method, adjust endogeneous and exogeneous variables
         self.__endog = 0
         self.__exog = 0
+
         if self.method_used == "multilinear regression with model selection":
             self._linear_model_selection()
         else:
             if self.method_used == 'Siviour':
-                self.__endog = self.Ph_on_temp_diff,
-                self.__exog = sm.add_constant(self.Isol_on_temp_diff.to_numpy())
+                self.__endog = self.Ph_on_temp_diff
+                self.__exog = sm.add_constant(self.Isol_on_temp_diff)
+                self.isol_is_used = ''
             elif self.method_used == 'simple':
-                self.__endog = self.Ph,
+                self.__endog = self.Ph
                 self.__exog = np.array([self.temp_diff]).T
                 self.isol_is_used = False
             elif self.method_used == 'multilinear':
-                self.__endog = self.Ph,
+                self.__endog = self.Ph
                 self.__exog = np.array([self.temp_diff, self.Isol]).T
+                self.isol_is_used = True
             else:
-                raise "method not implemented. Revise."
+                raise "method not implemented. Are you sure of the spelling?"
 
             # launch the OLS
             if len(self.__endog) > 0 and len(self.__exog) > 0:
@@ -106,6 +122,7 @@ class Coheating:
 
                 # get results and calculate uncertainty
                 self.mls_result = linreg
+                self.AIC = linreg.aic
                 if self.method_used == 'Siviour':
                     self.HTC = linreg.params['const']
                 else:
@@ -120,6 +137,9 @@ class Coheating:
 
             # Determine Total derived uncertainty
             self._calculate_expanded_coverage()
+
+            # update the summary attribute
+            self._update_summary()
         return
 
     def _linear_model_selection(self):
@@ -135,8 +155,10 @@ class Coheating:
         if p_value_isol < 0.05:
             self.isol_is_used = True
             self.mls_result = mls_unbiased
+            self.AIC = mls_unbiased.aic
             self.HTC = mls_unbiased.params[0]
             self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
+            self.model_selected = 'multilinear'
 
         else:
             mls_unbiased = sm.OLS(endog=self.Ph,
@@ -144,9 +166,22 @@ class Coheating:
                                   ).fit()
             self.isol_is_used = False
             self.method_used = 'simple'
+            self.model_selected = 'simple'
             self.mls_result = mls_unbiased
+            self.AIC = mls_unbiased.aic
             self.HTC = mls_unbiased.params[0]
             self.u_HTC_stat = np.sqrt(mls_unbiased.cov_params().iloc[0, 0])
+        return
+
+    def fit_all(self):
+        """ make the coheating analysis wih all methods : Siviour, linear, bilinear
+        """
+        # ============= Case 1 : Siviour =============
+        self.fit(method='Siviour')
+        # ============= Case 1 : Siviour =============
+        self.fit(method='simple')
+        # ============= Case 1 : Siviour =============
+        self.fit(method='multilinear')
         return
 
     def _calculate_sensitivity_coef(self, input_var_name, u):
@@ -289,32 +324,22 @@ class Coheating:
         # diag de corrélation des variabels explicatives
         """
 
-        #self._VIF = stats.outliers_influence.variance_inflation_factor(dataframe, name_column)
+        # self._VIF = stats.outliers_influence.variance_inflation_factor(dataframe, name_column)
 
         return
 
-    def summary(self):
-        """prints a summary of the coheating result
+    def _update_summary(self):
+        """update attribute summary with precedent analysis
 
-        # todo : add diagnostics
         """
-        __summary = pd.DataFrame(data=[self.HTC, self.extended_coverage_HTC,
-                                       self.HTC - self.extended_coverage_HTC,
-                                       self.HTC + self.extended_coverage_HTC,
-                                       self.error_HTC,
-                                       self.method_used,
-                                       self.isol_is_used,
-                                       self.data_length
-                                       ],
-                                 index=['HTC', 'extended coverage interval',
-                                        '2.5 % uncertainty bound',
-                                        '97.5 % uncertainty bound',
-                                        'error %',
-                                        'method used',
-                                        'Isol was used',
-                                        'number of samples'
-                                        ],
-                                 columns=['']
-                                 )
-        __summary.index.name = 'Coheating result'
-        return __summary
+        self.summary[self.method_used] = [self.HTC,
+                                          self.extended_coverage_HTC,
+                                          self.HTC - self.extended_coverage_HTC,
+                                          self.HTC + self.extended_coverage_HTC,
+                                          self.error_HTC,
+                                          self.method_used,
+                                          self.AIC,
+                                          self.isol_is_used,
+                                          self.data_length
+                                          ]
+        return
