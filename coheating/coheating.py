@@ -1,6 +1,7 @@
 import statsmodels.api as sm
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 from .utils import quick_least_squares
 
@@ -23,23 +24,23 @@ class Coheating:
                  ):
         """
 
-        :param temp_diff: array,
+        param temp_diff: array,
             daily averaged temperature difference between indoors and outdoors (K)
-        :param heating_power: array,
+        param heating_power: array,
             daily averaged heating power delivered indoors (W)
-        :param sol_radiation:array,
+        param sol_radiation:array,
             daily averaged solar radiation (W/m²)
-        :param uncertainty_sensor_calibration: dict,
+        param uncertainty_sensor_calibration: dict,
             sensor uncertainty given by the calibration of the sensors, must contain keys 'Ti', 'Te', 'Ph' and 'Isol'
-        :param uncertainty_spatial: dict,
+        param uncertainty_spatial: dict,
             defaults to 'Ti': 0.5
             input data uncertainty due to spatial dispersion of the measurand
-        :param method: string,
+        param method: string,
             regression analysis method to use to analyse the coheating data :
             'multilinear', 'Siviour', 'simple' or 'multilinear regression with model selection'
             the model selection method chooses the most appropriate model between the simple linear and multilinear
             defaults to multilinear regression with model selection
-        :param use_isol: bool,
+        param use_isol: bool,
             whether to use the solar radiation or not
         """
         # self.Tint = Tint
@@ -271,7 +272,7 @@ class Coheating:
 
     def _calculate_uncertainty_from_inputs(self):
         """
-        uncertainty calculation based on Gori et al (2023)
+        uncertainty calculation based on Gori et al. (2023)
 
         :return:
         """
@@ -326,6 +327,40 @@ class Coheating:
 
         # self._VIF = stats.outliers_influence.variance_inflation_factor(dataframe, name_column)
 
+        return
+
+    def plot_data(self, method=None):
+        """ scatter plot to nicely visualise the data
+
+        plots are method-dependent
+
+        """
+        method_to_use = self.method_used
+        if method:
+            method_to_use = method
+
+        if method_to_use == 'Siviour':
+            fig, ax = plt.subplots()
+            ax.scatter(self.Isol_on_temp_diff, self.Ph_on_temp_diff, c='k')
+            ax.set_xlabel('Solar radiation over temperature difference (W/m²K)')
+            ax.set_ylabel('Heating power over temperature difference (W/K)')
+            ax.set_xlim(xmin=0)
+            plt.show()
+
+        elif method_to_use == 'simple':
+            fig, ax = plt.subplots()
+            ax.scatter(self.temp_diff, self.Ph, c='k')
+            ax.set_xlabel('Temperature difference (°C)')
+            ax.set_ylabel('Heating power (W)')
+            plt.show()
+
+        else:
+            fig, ax = plt.subplots()
+            sc = ax.scatter(self.temp_diff, self.Ph, c=self.Isol)
+            ax.set_xlabel('Temperature difference (°C)')
+            ax.set_ylabel('Heating power (W)')
+            cb = plt.colorbar(sc, label='Solar radiation (W/m²)')
+            plt.show()
         return
 
     def _update_summary(self):
