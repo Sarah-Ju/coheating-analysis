@@ -51,5 +51,7 @@ https://doi.org/10.1016/j.enbuild.2023.113265
 Bauwens, G., & Roels, S. (2014). Co-heating test: A state-of-the-art. Energy and Buildings, 82, 163-172.
 https://doi.org/10.1016/j.enbuild.2014.04.039
 
+PR EN 17887-2 - November 2022
+
 ## License
 MIT
