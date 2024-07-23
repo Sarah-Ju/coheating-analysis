@@ -2,6 +2,7 @@ import statsmodels.api as sm
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import shapiro
 
 from .utils import quick_least_squares
 
@@ -17,8 +18,8 @@ class Coheating:
     """
 
     def __init__(self, temp_diff, heating_power, sol_radiation,
-                 uncertainty_sensor_calibration={'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95},
-                 uncertainty_spatial={'Ti': 0.5},
+                 uncertainty_sensor_calibration=None,
+                 uncertainty_spatial=None,
                  method='multilinear regression with model selection',
                  use_isol=True
                  ):
@@ -32,8 +33,9 @@ class Coheating:
             daily averaged solar radiation (W/m²)
         param uncertainty_sensor_calibration: dict,
             sensor uncertainty given by the calibration of the sensors, must contain keys 'Ti', 'Te', 'Ph' and 'Isol'
+            defaults to {'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95}
         param uncertainty_spatial: dict,
-            defaults to 'Ti': 0.5
+            defaults to {'Ti': 0.5}
             input data uncertainty due to spatial dispersion of the measurand
         param method: string,
             regression analysis method to use to analyse the coheating data :
@@ -52,8 +54,10 @@ class Coheating:
         self.Isol_on_temp_diff = sol_radiation / temp_diff     
         self.data_length = len(heating_power)  # todo assert lengths all data arrays and raise error when not the case ?
 
-        self.uncertainty_sensor_calibration = uncertainty_sensor_calibration
-        self.uncertainty_spatial = uncertainty_spatial
+        self.uncertainty_sensor_calibration = ({'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95}
+                                               if uncertainty_sensor_calibration is None
+                                               else uncertainty_sensor_calibration)
+        self.uncertainty_spatial = {'Ti': 0.5} if uncertainty_spatial is None else uncertainty_spatial
         self.u_HTC_calib = None
 
         # set method used. Defaults to multilinear regression
@@ -206,9 +210,9 @@ class Coheating:
         """
         # ============= Case 1 : Siviour =============
         self.fit(method='Siviour')
-        # ============= Case 1 : Siviour =============
+        # ============= Case 2 : simple lin reg. Exogeneous is the temperature difference =============
         self.fit(method='simple')
-        # ============= Case 1 : Siviour =============
+        # ============= Case 3 : multilin reg as in 7.3 of the NF EN 17887-2 =============
         self.fit(method='multilinear')
         return
 
@@ -353,13 +357,52 @@ class Coheating:
         # todo calculate Variance Inflation Factors (VIF)
         # diag de corrélation des variabels explicatives
 
-        References : PR EN 17887-2 : Novembre 2022
+        References : NF EN 17887-2 : May 2024
         """
         # autocorrélation des résidus
 
         # self._VIF = stats.outliers_influence.variance_inflation_factor(dataframe, name_column)
 
         return
+
+    def shapiro_wilks_test(self):
+        """
+        test for residuals normality with the Shapiro-Wilks test
+        """
+        res = shapiro(self.mls_result.resid)  # ici ça ne marche que pour mls
+        print(f'The Shapiro-Wilks statistic is {res.statistic}')
+        normality_hypothesis = ('it is very unlikely that the residuals are normally distributed.' if res.pvalue < 0.05
+                                else 'the normality hypothesis cannot be rejected.'
+                                     'No assumption can be made on normality.')
+        print(f'With a p-value of {res.pvalue}, we can conclude that {normality_hypothesis}')
+        self.summary.loc['shapiro-wilk statistic', self.method_used] = res.statistic
+        self.summary.loc['shapiro-wilk p-value', self.method_used] = res.pvalue
+
+    def plot_residuals(self, save_to=None):
+        """
+        make a residuals plot to check visually for white noise, with abscis the course of time
+
+        save_to: Path, directory to save the residuals plot. Default to None, the plot is not saved
+        """
+        plt.figure(figsize=(8, 3))
+        plt.plot(self.mls_result.resid, lw=0, marker='o', markersize=3, color='k')
+        plt.xticks(rotation=30)
+        if save_to:
+            plt.savefig(save_to / f'plot_residuals_{self.method_used}.png',
+                        bbox_inches='tight'
+                        )
+
+    def plot_autocorr_residuals(self, save_to=None):
+        """
+        make a residuals autocorrelation plot to check visually for white noise
+
+        save_to: Path, directory to save the residuals plot. Default to None, the plot is not saved
+        """
+        sm.graphics.tsa.plot_acf(self.mls_result.resid)
+        if save_to:
+            plt.savefig(save_to / f'plot_autocorrelation_residuals_{self.method_used}.png',
+                        bbox_inches='tight'
+                        )
 
     def plot_data(self, method=None):
         """ scatter plot to nicely visualise the data
