@@ -29,10 +29,10 @@ pip install git+https://github.com/Sarah-Ju/coheating-analysis.git
 from coheating import Coheating
 
 coheating_test = Coheating(data['ΔT'],
-                            data['Ptot'],
-                            data['Irr'],
-                            uncertainty_sensor_calibration={'Ti': 0.25, 'Te': 0.5, 'Ph': 1, 'Isol': 1.95}
-                            )
+                           data['Ptot'],
+                           data['Irr'],
+                           uncertainty_sensor_calibration={'Ti': 0.25, 'Te': 0.5, 'Ph': 1, 'Isol': 1.95}
+                           )
 
 # make analysis : by default, a multilinear model is used
 # if the p-value of the solar coefficient is higher than 0.05 (non-significant), a simple model is used instead
