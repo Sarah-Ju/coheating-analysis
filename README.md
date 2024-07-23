@@ -53,5 +53,12 @@ https://doi.org/10.1016/j.enbuild.2014.04.039
 
 PR EN 17887-2 - November 2022
 
+## Notes
+What the package does not verify :
+- that there are 15 days of uninterrupted data
+- that there are not too much missing data
+- that the data from the pre-heating of the building have already been cut out
+- that the data are already averaged daily
+
 ## License
 MIT
