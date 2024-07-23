@@ -1,12 +1,18 @@
-from statsmodels.api import OLS
+import statsmodels.api as sm
 
 
-def quick_least_squares(endog, exog):
+def quick_least_squares(endog, exog, add_constant=False):
     """
 
     :param endog:
     :param exog:
-    :return:
+    :param add_constant: bool
+
+    :return: HTC value from regression
     """
-    quick_ols = OLS(endog=endog, exog=exog).fit()
+    if add_constant:
+        exog = sm.add_constant(exog)
+
+    quick_ols = sm.OLS(endog=endog, exog=exog).fit()
+    print(quick_ols.params)
     return quick_ols.params[0]

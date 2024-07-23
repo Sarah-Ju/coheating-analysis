@@ -61,6 +61,8 @@ class Coheating:
         # whether to use solar irradiation in the regression. Defaults to True
         self.isol_is_used = use_isol
 
+        self.intercept = True if method == 'Siviour' else False
+
         self.mls_result = None
         self.HTC = None
         self.u_HTC_stat = None
@@ -79,19 +81,29 @@ class Coheating:
                                            'method used',
                                            'AIC',
                                            'Isol was used',
+                                           'intercept',
                                            'number of samples'
                                            ]
                                     )
         self.summary.index.name = 'Coheating result'
 
-    def fit(self, method=None):
-        """
-        method: stirng,
+    def fit(self, method=None, add_constant=False):
+        """ perform the regression analysis
+
+
+        method: string,
             overrides the method defined at instance definition
+
+        add_constant: boolean,
+            possibility to add a constant (non-zero intercept) to the regression
+            note that the Siviour method already includes a non-zero intercept
+            the constant option is set back to the default value False immediatally at the end of this function call
         """
 
         if method:
             self.method_used = method
+        if add_constant or self.method_used == 'Siviour':
+            self.intercept = True
 
         # according to specified method, adjust endogeneous and exogeneous variables
         self.__endog = 0
@@ -106,11 +118,17 @@ class Coheating:
                 self.isol_is_used = ''
             elif self.method_used == 'simple':
                 self.__endog = self.Ph
-                self.__exog = np.array([self.temp_diff]).T
+                if add_constant:
+                    self.__exog = sm.add_constant(self.temp_diff)
+                else:
+                    self.__exog = self.temp_diff
                 self.isol_is_used = False
             elif self.method_used == 'multilinear':
                 self.__endog = self.Ph
-                self.__exog = np.array([self.temp_diff, self.Isol]).T
+                if add_constant:
+                    self.__exog = sm.add_constant(np.array([self.temp_diff, self.Isol]).T)
+                else:
+                    self.__exog = np.array([self.temp_diff, self.Isol]).T
                 self.isol_is_used = True
             else:
                 raise "method not implemented. Are you sure of the spelling?"
@@ -123,13 +141,16 @@ class Coheating:
 
                 # get results and calculate uncertainty
                 self.mls_result = linreg
-                self.AIC = linreg.aic
+                self.AIC = linreg.aic  # TODO get other diagnostic information
                 if self.method_used == 'Siviour':
                     self.HTC = linreg.params['const']
+                elif add_constant:
+                    self.HTC = linreg.params['x1']
                 else:
                     self.HTC = linreg.params[0]
 
-                self.u_HTC_stat = np.sqrt(linreg.cov_params().iloc[0, 0])
+                self.u_HTC_stat = np.sqrt(linreg.cov_params().iloc[0, 0])  # todo check this gets the right cov when intercept...
+                                                                        # todo or find alternate solution more robust than [0,0]
 
         # if an HTC calculation has been made
         if self.HTC:
@@ -141,6 +162,9 @@ class Coheating:
 
             # update the summary attribute
             self._update_summary()
+
+        # back to no intercept
+        self.intercept = False
         return
 
     def _linear_model_selection(self):
@@ -176,6 +200,9 @@ class Coheating:
 
     def fit_all(self):
         """ make the coheating analysis wih all methods : Siviour, linear, bilinear
+
+        simple and multilinear regressions are done with zero-intercept
+        results are saved in the summary
         """
         # ============= Case 1 : Siviour =============
         self.fit(method='Siviour')
@@ -187,6 +214,8 @@ class Coheating:
 
     def _calculate_sensitivity_coef(self, input_var_name, u):
         """calculates the sensitivity coefficients for the GUM uncertainty propagation
+
+        TODO check this for models with intercept
 
         :param input_var_name:
         :param u:
@@ -323,7 +352,10 @@ class Coheating:
         # todo to implement !
         # todo calculate Variance Inflation Factors (VIF)
         # diag de corrélation des variabels explicatives
+
+        References : PR EN 17887-2 : Novembre 2022
         """
+        # autocorrélation des résidus
 
         # self._VIF = stats.outliers_influence.variance_inflation_factor(dataframe, name_column)
 
@@ -359,7 +391,7 @@ class Coheating:
             sc = ax.scatter(self.temp_diff, self.Ph, c=self.Isol)
             ax.set_xlabel('Temperature difference (°C)')
             ax.set_ylabel('Heating power (W)')
-            cb = plt.colorbar(sc, label='Solar radiation (W/m²)')
+            plt.colorbar(sc, label='Solar radiation (W/m²)')
             plt.show()
         return
 
@@ -375,6 +407,7 @@ class Coheating:
                                           self.method_used,
                                           self.AIC,
                                           self.isol_is_used,
+                                          self.intercept,
                                           self.data_length
                                           ]
         return
