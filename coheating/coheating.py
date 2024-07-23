@@ -86,7 +86,9 @@ class Coheating:
                                            'AIC',
                                            'Isol was used',
                                            'intercept',
-                                           'number of samples'
+                                           'number of samples',
+                                           'shapiro-wilks statistic',
+                                           'shapiro_wilks p-value'
                                            ]
                                     )
         self.summary.index.name = 'Coheating result'
@@ -146,6 +148,7 @@ class Coheating:
                 # get results and calculate uncertainty
                 self.mls_result = linreg
                 self.AIC = linreg.aic  # TODO get other diagnostic information
+                self.__shapiro_stat, self.__shapiro_pval = self.shapiro_wilks_test(verbose=False)
                 if self.method_used == 'Siviour':
                     self.HTC = linreg.params['const']
                 elif add_constant:
@@ -365,18 +368,20 @@ class Coheating:
 
         return
 
-    def shapiro_wilks_test(self):
+    def shapiro_wilks_test(self, verbose=True):
         """
         test for residuals normality with the Shapiro-Wilks test
         """
-        res = shapiro(self.mls_result.resid)  # ici ça ne marche que pour mls
-        print(f'The Shapiro-Wilks statistic is {res.statistic}')
+        res = shapiro(self.mls_result.resid)
         normality_hypothesis = ('it is very unlikely that the residuals are normally distributed.' if res.pvalue < 0.05
-                                else 'the normality hypothesis cannot be rejected.'
+                                else 'the normality hypothesis cannot be rejected. '
                                      'No assumption can be made on normality.')
-        print(f'With a p-value of {res.pvalue}, we can conclude that {normality_hypothesis}')
-        self.summary.loc['shapiro-wilk statistic', self.method_used] = res.statistic
-        self.summary.loc['shapiro-wilk p-value', self.method_used] = res.pvalue
+        if verbose:
+            print(f'The Shapiro-Wilks statistic is {res.statistic:.3f}')
+            print(f'With a p-value of {res.pvalue:.3f}, we can conclude that {normality_hypothesis}')
+            return
+        else:
+            return res.statistic, res.pvalue
 
     def plot_residuals(self, save_to=None):
         """
@@ -451,6 +456,8 @@ class Coheating:
                                           self.AIC,
                                           self.isol_is_used,
                                           self.intercept,
-                                          self.data_length
+                                          self.data_length,
+                                          self.__shapiro_stat,
+                                          self.__shapiro_pval
                                           ]
         return
