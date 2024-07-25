@@ -14,7 +14,6 @@ def quick_least_squares(endog, exog, add_constant=False):
         exog = sm.add_constant(exog)
 
     quick_ols = sm.OLS(endog=endog, exog=exog).fit()
-    print(quick_ols.params, quick_ols.params[1], quick_ols.params[0])
     if add_constant:
         return quick_ols.params[1]
     else:

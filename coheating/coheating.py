@@ -84,7 +84,7 @@ class Coheating:
         self.__summary = pd.DataFrame(index=['HTC',
                                              'extended coverage interval',
                                              'expanded uncertainty lower bound (k=2)',
-                                             'expanded uncertainty lower bound (k=2)',
+                                             'expanded uncertainty upper bound (k=2)',
                                              'error %',
                                              'u HTC stat',
                                              'u HTC sensor',
@@ -549,8 +549,8 @@ class Coheating:
         """
         if not detailed:
             return self.__summary.loc[('HTC',
-                                       '2.5 % uncertainty bound',
-                                       '97.5 % uncertainty bound',
+                                       'expanded uncertainty lower bound (k=2)',
+                                       'expanded uncertainty upper bound (k=2)',
                                        'error %',
                                        'number of samples',
                                        ), :]
