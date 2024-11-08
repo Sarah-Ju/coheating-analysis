@@ -306,3 +306,94 @@ class SiviourModel(RegressionModel):
         regression plot of the Siviour regression
         """
         return
+
+
+class LinearModel(RegressionModel):
+    def __init__(self, heat_power=None, delta_temp=None, solar_rad=None,
+                 uncertainty_sensor_calibration=None, uncertainty_spatial=None,
+                 regression_method=None):
+        """
+
+        """
+        super().__init__(heat_power, delta_temp, solar_rad,
+                         uncertainty_sensor_calibration, uncertainty_spatial,
+                         regression_method)
+        self.endog = self.Ph.to_numpy()  # use series values as numpy arrays for the regression
+        self.exog = self.delta_T.to_numpy()  # idem ditto
+        self.model_name = 'linear'
+
+    def fit(self):
+        self.parent_fit()
+        self.HTC = self.mls_result.params[0]
+        self.u_HTC_stat = np.sqrt(self.mls_result.cov_params()[0, 0])
+
+        # Determine uncertainty in input variables
+        self._calculate_uncertainty_from_inputs()
+
+        # Determine Total derived uncertainty
+        self._calculate_expanded_coverage()
+
+        # update the summary attribute
+        self._update_model_summary()
+
+    def _calculate_var_sensitivity_coef(self, input_var_name, u):
+        """
+        input_var_name: str, name of the variable which sensitivity coefficient is calculated
+        """
+        heating_power = copy.deepcopy(self.Ph)
+        delta_temp = copy.deepcopy(self.delta_T)
+
+        # sens_coef = (upper_bound - lower_bound) / 2 * u
+
+        # upper bound
+        # modify the variable
+        for var in [heating_power, delta_temp]:
+            if var.name == input_var_name:
+                var.series += u[input_var_name]
+
+        upper_bound = sm.OLS(endog=heating_power.to_numpy(),
+                             exog=delta_temp.to_numpy()).fit().params[0]
+
+        # lower bound
+        # modify the variable
+        for var in [heating_power, delta_temp]:
+            if var.name == input_var_name:
+                var.series -= 2 * u[input_var_name]  # on vient d'ajouter u, il faut donc retirer 2 * u
+
+        lower_bound = sm.OLS(endog=heating_power.to_numpy(),
+                             exog=delta_temp.to_numpy()).fit().params[0]
+
+        sens_coef = (upper_bound - lower_bound) / (2 * u[input_var_name])
+
+        return sens_coef
+
+    def _calculate_uncertainty_from_inputs(self):
+        """
+        uncertainty calculation based on Gori et al. (2023)
+
+        :return:
+        """
+
+        # calculate first spatial and sensor calibration uncertainty
+        u = dict()
+        u['Ti'] = np.sqrt(self.uncertainty_sensor_calibration['Ti'] ** 2
+                          + self.uncertainty_spatial['Ti'] ** 2
+                          )
+        u['Ph'] = self.uncertainty_sensor_calibration['Ph']
+        u['Te'] = self.uncertainty_sensor_calibration['Te']
+
+        sensitivity_coefficients = dict()
+        var_h = 0
+
+        for variable in ['Ti', 'Te', 'Ph']:
+            sensitivity_coefficients[variable] = self._calculate_var_sensitivity_coef(variable, u)
+            var_h += (sensitivity_coefficients[variable] * u[variable]) ** 2
+
+        self.u_HTC_calib = np.sqrt(var_h)
+        return
+
+    def plot_regression(self):
+        """
+        regression plot of the multilinear regression
+        """
+        return
