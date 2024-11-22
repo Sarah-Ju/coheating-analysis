@@ -2,6 +2,7 @@ import copy
 import statsmodels.api as sm
 import numpy as np
 from scipy.stats import shapiro
+import matplotlib.pyplot as plt
 
 
 class RegressionModel:
@@ -14,7 +15,7 @@ class RegressionModel:
         """
         self.Ph = heat_power  # is a series
         self.delta_T = delta_temp  # is a series
-        self.solarRad = solar_rad  # is a series
+        self.solarRad = solar_rad # is a series
         self.uncertainty_sensor_calibration = ({'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95}
                                                if uncertainty_sensor_calibration is None
                                                else uncertainty_sensor_calibration)
@@ -33,6 +34,7 @@ class RegressionModel:
         self.rsquared = None
         self.model_name = None
         self.regression_method = 'OLS' if regression_method is None else regression_method
+        self.residuals = None
         self.__summary = None
 
     def parent_fit(self, method='OLS'):
@@ -49,6 +51,7 @@ class RegressionModel:
         self.mls_result = linreg
         self.AIC = linreg.aic
         self.rsquared = linreg.rsquared
+        self.residuals = linreg.resid
         self.__shapiro_stat, self.__shapiro_pval = self.shapiro_wilks_test(verbose=False)
 
     def _calculate_expanded_coverage(self, k=2):
@@ -116,6 +119,33 @@ class RegressionModel:
         returns the entire detailed summary for the model
         """
         return self.__summary
+
+    def plot_residuals(self, save_to=None):
+        """
+        plot residuals as in figure 3 of standard EN 17887-2
+
+        save_to : str, optionnal path to directory in which the figure is saved
+        """
+        plt.plot(self.residuals, lw=0, marker='o', color='k')
+        plt.ylabel('Residuals')
+        plt.xlabel('Order of observation')
+        plt.title(f'Residuals (in {self.model_name} analysis)')
+        if save_to:
+            plt.savefig(save_to / f"residuals_{self.model_name}_analysis.svg", bbox_inches='tight')
+
+    def plot_residuals_autocorrelation(self, save_to=None):
+        """
+
+        """
+        plt.acorr(self.residuals, lw=3)
+        plt.xlim(xmin=-0.1)
+        plt.ylim(-1, 1)
+        plt.yticks([-1, -0.5, 0, 0.5, 1])
+        plt.xlabel('Lag')
+        plt.ylabel('Autocorrelation')
+        plt.title(f'Residuals autocorrelation ({self.model_name} analysis)')
+        if save_to:
+            plt.savefig(save_to / f"autocorrelation_residuals_{self.model_name}_analysis.svg", bbox_inches='tight')
 
 
 class MultilinearModel(RegressionModel):
@@ -301,10 +331,11 @@ class SiviourModel(RegressionModel):
         self.u_HTC_calib = np.sqrt(var_h)
         return
 
-    def plot_regression(self):
+    def plot_regression_diagram(self):
         """
         regression plot of the Siviour regression
         """
+
         return
 
 
@@ -392,7 +423,7 @@ class LinearModel(RegressionModel):
         self.u_HTC_calib = np.sqrt(var_h)
         return
 
-    def plot_regression(self):
+    def plot_regression_diagram(self):
         """
         regression plot of the multilinear regression
         """
