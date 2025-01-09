@@ -2,6 +2,7 @@ import statsmodels.api as sm
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import shapiro
 
 from .utils import quick_least_squares
 
@@ -12,13 +13,15 @@ class Coheating:
     and calculates the uncertainty of the results.
 
     # todo proposer une ridge regression pour les var corrélées ??? voir sklearn
+    # todo inclure les Horizontal OLS et les RMA de l'annexe C
+    # todo vérifier que toutes les formules sont conformes à l'annexe B
 
     The analysis is performed in agreement with Gori et al (2023) and within the guidelines of Bauwens and Roels (2012)
     """
 
     def __init__(self, temp_diff, heating_power, sol_radiation,
-                 uncertainty_sensor_calibration={'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95},
-                 uncertainty_spatial={'Ti': 0.5},
+                 uncertainty_sensor_calibration=None,
+                 uncertainty_spatial=None,
                  method='multilinear regression with model selection',
                  use_isol=True
                  ):
@@ -32,12 +35,14 @@ class Coheating:
             daily averaged solar radiation (W/m²)
         param uncertainty_sensor_calibration: dict,
             sensor uncertainty given by the calibration of the sensors, must contain keys 'Ti', 'Te', 'Ph' and 'Isol'
+            defaults to {'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95}
         param uncertainty_spatial: dict,
-            defaults to 'Ti': 0.5
+            defaults to {'Ti': 0.5}
             input data uncertainty due to spatial dispersion of the measurand
         param method: string,
             regression analysis method to use to analyse the coheating data :
             'multilinear', 'Siviour', 'simple' or 'multilinear regression with model selection'
+            'all' will make all regressions by calling method fit_all()
             the model selection method chooses the most appropriate model between the simple linear and multilinear
             defaults to multilinear regression with model selection
         param use_isol: bool,
@@ -52,8 +57,10 @@ class Coheating:
         self.Isol_on_temp_diff = sol_radiation / temp_diff     
         self.data_length = len(heating_power)  # todo assert lengths all data arrays and raise error when not the case ?
 
-        self.uncertainty_sensor_calibration = uncertainty_sensor_calibration
-        self.uncertainty_spatial = uncertainty_spatial
+        self.uncertainty_sensor_calibration = ({'Ti': 0.1, 'Te': 0.1, 'Ph': 0.32, 'Isol': 1.95}
+                                               if uncertainty_sensor_calibration is None
+                                               else uncertainty_sensor_calibration)
+        self.uncertainty_spatial = {'Ti': 0.5} if uncertainty_spatial is None else uncertainty_spatial
         self.u_HTC_calib = None
 
         # set method used. Defaults to multilinear regression
@@ -71,21 +78,28 @@ class Coheating:
         self.error_HTC = None
         self.uncertainty_bounds_HTC = None
         self.AIC = None
+        self.rsquared = None
         self.model_selected = None
 
-        self.summary = pd.DataFrame(index=['HTC',
-                                           'extended coverage interval',
-                                           '2.5 % uncertainty bound',
-                                           '97.5 % uncertainty bound',
-                                           'error %',
-                                           'method used',
-                                           'AIC',
-                                           'Isol was used',
-                                           'intercept',
-                                           'number of samples'
-                                           ]
-                                    )
-        self.summary.index.name = 'Coheating result'
+        self.__summary = pd.DataFrame(index=['HTC',
+                                             'extended coverage interval',
+                                             'expanded uncertainty lower bound (k=2)',
+                                             'expanded uncertainty upper bound (k=2)',
+                                             'error %',
+                                             'u HTC stat',
+                                             'u HTC sensor',
+                                             'method used',
+                                             'n obs',
+                                             'AIC',
+                                             'R²',
+                                             'Isol was used',
+                                             'intercept',
+                                             'number of samples',
+                                             'shapiro-wilks statistic',
+                                             'shapiro_wilks p-value'
+                                             ]
+                                      )
+        self.__summary.index.name = 'Coheating result'
 
     def fit(self, method=None, add_constant=False):
         """ perform the regression analysis
@@ -111,6 +125,8 @@ class Coheating:
 
         if self.method_used == "multilinear regression with model selection":
             self._linear_model_selection()
+        elif self.method_used == 'all':
+            self.fit_all()
         else:
             if self.method_used == 'Siviour':
                 self.__endog = self.Ph_on_temp_diff
@@ -131,7 +147,7 @@ class Coheating:
                     self.__exog = np.array([self.temp_diff, self.Isol]).T
                 self.isol_is_used = True
             else:
-                raise "method not implemented. Are you sure of the spelling?"
+                raise ValueError("method not implemented. Are you sure of the spelling?")
 
             # launch the OLS
             if len(self.__endog) > 0 and len(self.__exog) > 0:
@@ -141,7 +157,9 @@ class Coheating:
 
                 # get results and calculate uncertainty
                 self.mls_result = linreg
-                self.AIC = linreg.aic  # TODO get other diagnostic information
+                self.AIC = linreg.aic
+                self.rsquared = linreg.rsquared
+                self.__shapiro_stat, self.__shapiro_pval = self.shapiro_wilks_test(verbose=False)
                 if self.method_used == 'Siviour':
                     self.HTC = linreg.params['const']
                 elif add_constant:
@@ -149,8 +167,13 @@ class Coheating:
                 else:
                     self.HTC = linreg.params[0]
 
-                self.u_HTC_stat = np.sqrt(linreg.cov_params().iloc[0, 0])  # todo check this gets the right cov when intercept...
-                                                                        # todo or find alternate solution more robust than [0,0]
+                # and save the statistical uncertainty
+                if self.method_used == 'Siviour':
+                    # if Siviour method, we are interested in the intercept, i.e. in the 'const' parameter
+                    self.u_HTC_stat = np.sqrt(linreg.cov_params().loc['const', 'const'])
+                else:
+                    # else, only the 'x1' parameter is sought
+                    self.u_HTC_stat = np.sqrt(linreg.cov_params().loc['x1', 'x1'])
 
         # if an HTC calculation has been made
         if self.HTC:
@@ -171,7 +194,7 @@ class Coheating:
         """
 
         """
-        self.method_used = 'multilinear regression'
+        self.method_used = 'multilinear'
         mls_unbiased = sm.OLS(endog=self.Ph,
                               exog=np.array([self.temp_diff, self.Isol]).T
                               ).fit()
@@ -206,97 +229,154 @@ class Coheating:
         """
         # ============= Case 1 : Siviour =============
         self.fit(method='Siviour')
-        # ============= Case 1 : Siviour =============
+        # ============= Case 2 : simple lin reg. Exogeneous is the temperature difference =============
         self.fit(method='simple')
-        # ============= Case 1 : Siviour =============
+        # ============= Case 3 : multilin reg as in 7.3 of the NF EN 17887-2 =============
         self.fit(method='multilinear')
         return
 
     def _calculate_sensitivity_coef(self, input_var_name, u):
         """calculates the sensitivity coefficients for the GUM uncertainty propagation
 
-        TODO check this for models with intercept
-
         :param input_var_name:
         :param u:
         :return:
         """
         sens_coef = 0
-        if self.method_used == 'multilinear regression':
-            # if variable is a temperature
-            if input_var_name == 'Ti' or input_var_name == 'Te':
-                sens_coef = (quick_least_squares(endog=self.Ph,
-                                                 exog=np.array([self.temp_diff + u[input_var_name], self.Isol]).T)
-                             - quick_least_squares(endog=self.Ph,
-                                                   exog=np.array([self.temp_diff - u[input_var_name], self.Isol]).T)
-                             ) / (2 * u[input_var_name])
-            # if variable is a heating power
-            elif input_var_name == 'Ph':
-                sens_coef = (quick_least_squares(endog=self.Ph + u[input_var_name],
-                                                 exog=np.array([self.temp_diff, self.Isol]).T)
-                             - quick_least_squares(endog=self.Ph - u[input_var_name],
-                                                   exog=np.array([self.temp_diff, self.Isol]).T)
-                             ) / (2 * u[input_var_name])
-    
-            # if variable is a solar radiation
-            elif input_var_name == 'Isol':
-                sens_coef = (quick_least_squares(endog=self.Ph,
-                                                 exog=np.array([self.temp_diff, self.Isol + u[input_var_name]]).T)
-                             - quick_least_squares(endog=self.Ph,
-                                                   exog=np.array([self.temp_diff, self.Isol - u[input_var_name]]).T)
-                             ) / (2 * u[input_var_name])
 
         if self.method_used == 'Siviour':
             # self.linear_regressor = LinearRegression(fit_intercept = True)
 
             # if variable is a heating power
             if input_var_name == 'Ph':
-                sens_coef = (sm.OLS(endog=(self.Ph + u[input_var_name])/self.temp_diff,
+                sens_coef = (sm.OLS(endog=(self.Ph + u[input_var_name]) / self.temp_diff,
                                     exog=sm.add_constant(self.Isol_on_temp_diff)
                                     ).fit().params['const']
-                             - sm.OLS(endog=(self.Ph - u[input_var_name])/self.temp_diff,
+                             - sm.OLS(endog=(self.Ph - u[input_var_name]) / self.temp_diff,
                                       exog=sm.add_constant(self.Isol_on_temp_diff)
                                       ).fit().params['const']
-                             )/(2 * u[input_var_name])
+                             ) / (2 * u[input_var_name])
 
             # if variable is a temperature
-            elif input_var_name == 'Ti' or input_var_name == 'Te':                                      
-                             
+            elif input_var_name == 'Ti' or input_var_name == 'Te':
+
                 sens_coef = (sm.OLS(endog=self.Ph / (self.temp_diff + u[input_var_name]),
                                     exog=sm.add_constant(self.Isol / (self.temp_diff + u[input_var_name]))
                                     ).fit().params['const']
                              - sm.OLS(endog=self.Ph / (self.temp_diff - u[input_var_name]),
                                       exog=sm.add_constant(self.Isol / (self.temp_diff - u[input_var_name]))
                                       ).fit().params['const']
-                             )/(2 * u[input_var_name])
+                             ) / (2 * u[input_var_name])
 
             # if variable is a solar radiation
             elif input_var_name == 'Isol':
-                             
+
                 sens_coef = (sm.OLS(endog=self.Ph_on_temp_diff,
-                                    exog=sm.add_constant((self.Isol + u[input_var_name])/self.temp_diff)
+                                    exog=sm.add_constant((self.Isol + u[input_var_name]) / self.temp_diff)
                                     ).fit().params['const']
                              - sm.OLS(endog=self.Ph_on_temp_diff,
-                                      exog=sm.add_constant((self.Isol - u[input_var_name])/self.temp_diff)
+                                      exog=sm.add_constant((self.Isol - u[input_var_name]) / self.temp_diff)
                                       ).fit().params['const']
-                             )/(2 * u[input_var_name])
-
-        if self.method_used == 'simple' or (self.method_used == 'multilinear regression' and not self.isol_is_used):
-            # self.linear_regressor = LinearRegression(fit_intercept = False)
-            # if variable is a heating power
-            if input_var_name == 'Ti' or input_var_name == 'Te':
-                sens_coef = (quick_least_squares(endog=self.Ph,
-                                                 exog=np.array([self.temp_diff + u[input_var_name]]).T)
-                             - quick_least_squares(endog=self.Ph,
-                                                   exog=np.array([self.temp_diff - u[input_var_name]]).T)
                              ) / (2 * u[input_var_name])
-            # if variable is a heating power
-            elif input_var_name == 'Ph':
-                sens_coef = (quick_least_squares(endog=self.Ph + u[input_var_name],
-                                                 exog=np.array([self.temp_diff]).T)
-                             - quick_least_squares(endog=self.Ph - u[input_var_name],
-                                                   exog=np.array([self.temp_diff]).T)
-                             ) / (2 * u[input_var_name])  
+
+        # only when there is no intercept
+        if not self.intercept:
+            if self.method_used == 'multilinear':
+                # if variable is a temperature
+                if input_var_name == 'Ti' or input_var_name == 'Te':
+                    sens_coef = (quick_least_squares(endog=self.Ph,
+                                                     exog=np.array([self.temp_diff + u[input_var_name], self.Isol]).T)
+                                 - quick_least_squares(endog=self.Ph,
+                                                       exog=np.array([self.temp_diff - u[input_var_name], self.Isol]).T)
+                                 ) / (2 * u[input_var_name])
+                # if variable is a heating power
+                elif input_var_name == 'Ph':
+                    sens_coef = (quick_least_squares(endog=self.Ph + u[input_var_name],
+                                                     exog=np.array([self.temp_diff, self.Isol]).T)
+                                 - quick_least_squares(endog=self.Ph - u[input_var_name],
+                                                       exog=np.array([self.temp_diff, self.Isol]).T)
+                                 ) / (2 * u[input_var_name])
+
+                # if variable is a solar radiation
+                elif input_var_name == 'Isol':
+                    sens_coef = (quick_least_squares(endog=self.Ph,
+                                                     exog=np.array([self.temp_diff, self.Isol + u[input_var_name]]).T)
+                                 - quick_least_squares(endog=self.Ph,
+                                                       exog=np.array([self.temp_diff, self.Isol - u[input_var_name]]).T)
+                                 ) / (2 * u[input_var_name])
+
+
+
+            if self.method_used == 'simple' or (self.method_used == 'multilinear' and not self.isol_is_used):
+                # self.linear_regressor = LinearRegression(fit_intercept = False)
+                # if variable is a heating power
+                if input_var_name == 'Ti' or input_var_name == 'Te':
+                    sens_coef = (quick_least_squares(endog=self.Ph,
+                                                     exog=np.array([self.temp_diff + u[input_var_name]]).T)
+                                 - quick_least_squares(endog=self.Ph,
+                                                       exog=np.array([self.temp_diff - u[input_var_name]]).T)
+                                 ) / (2 * u[input_var_name])
+                # if variable is a heating power
+                elif input_var_name == 'Ph':
+                    sens_coef = (quick_least_squares(endog=self.Ph + u[input_var_name],
+                                                     exog=np.array([self.temp_diff]).T)
+                                 - quick_least_squares(endog=self.Ph - u[input_var_name],
+                                                       exog=np.array([self.temp_diff]).T)
+                                 ) / (2 * u[input_var_name])
+        else:
+            # on the contrary, when there is an intercept
+            if self.method_used == 'multilinear':
+                # if variable is a temperature
+                if input_var_name == 'Ti' or input_var_name == 'Te':
+                    sens_coef = (quick_least_squares(endog=self.Ph,
+                                                     exog=np.array([self.temp_diff + u[input_var_name], self.Isol]).T,
+                                                     add_constant=True
+                                                     )
+                                 - quick_least_squares(endog=self.Ph,
+                                                       exog=np.array([self.temp_diff - u[input_var_name], self.Isol]).T,
+                                                       add_constant=True
+                                                       )
+                                 ) / (2 * u[input_var_name])
+                # if variable is a heating power
+                elif input_var_name == 'Ph':
+                    sens_coef = (quick_least_squares(endog=self.Ph + u[input_var_name],
+                                                     exog=np.array([self.temp_diff, self.Isol]).T,
+                                                     add_constant=True)
+                                 - quick_least_squares(endog=self.Ph - u[input_var_name],
+                                                       exog=np.array([self.temp_diff, self.Isol]).T,
+                                                       add_constant=True)
+                                 ) / (2 * u[input_var_name])
+
+                # if variable is a solar radiation
+                elif input_var_name == 'Isol':
+                    sens_coef = (quick_least_squares(endog=self.Ph,
+                                                     exog=np.array([self.temp_diff, self.Isol + u[input_var_name]]).T,
+                                                     add_constant=True)
+                                 - quick_least_squares(endog=self.Ph,
+                                                       exog=np.array([self.temp_diff, self.Isol - u[input_var_name]]).T,
+                                                       add_constant=True)
+                                 ) / (2 * u[input_var_name])
+
+            if self.method_used == 'simple' or (self.method_used == 'multilinear' and not self.isol_is_used):
+                # self.linear_regressor = LinearRegression(fit_intercept = False)
+                # if variable is a heating power
+                if input_var_name == 'Ti' or input_var_name == 'Te':
+                    sens_coef = (quick_least_squares(endog=self.Ph,
+                                                     exog=np.array([self.temp_diff + u[input_var_name]]).T,
+                                                     add_constant=True)
+                                 - quick_least_squares(endog=self.Ph,
+                                                       exog=np.array([self.temp_diff - u[input_var_name]]).T,
+                                                       add_constant=True)
+                                 ) / (2 * u[input_var_name])
+                # if variable is a heating power
+                elif input_var_name == 'Ph':
+                    sens_coef = (quick_least_squares(endog=self.Ph + u[input_var_name],
+                                                     exog=np.array([self.temp_diff]).T,
+                                                     add_constant=True)
+                                 - quick_least_squares(endog=self.Ph - u[input_var_name],
+                                                       exog=np.array([self.temp_diff]).T,
+                                                       add_constant=True)
+                                 ) / (2 * u[input_var_name])
         return sens_coef
 
     def _calculate_uncertainty_from_inputs(self):
@@ -318,7 +398,7 @@ class Coheating:
         sensitivity_coefficients = dict()
         var_h = 0
         
-        if self.method_used == 'multilinear regression' or self.method_used == 'Siviour':
+        if self.method_used == 'multilinear' or self.method_used == 'Siviour':
             for variable in ['Ti', 'Te', 'Ph', 'Isol']:
                 sensitivity_coefficients[variable] = self._calculate_sensitivity_coef(variable, u)
                 var_h += (sensitivity_coefficients[variable] * u[variable]) ** 2
@@ -353,7 +433,7 @@ class Coheating:
         # todo calculate Variance Inflation Factors (VIF)
         # diag de corrélation des variabels explicatives
 
-        References : PR EN 17887-2 : Novembre 2022
+        References : NF EN 17887-2 : May 2024
         """
         # autocorrélation des résidus
 
@@ -361,15 +441,60 @@ class Coheating:
 
         return
 
+    def shapiro_wilks_test(self, verbose=True):
+        """
+        test for residuals normality with the Shapiro-Wilks test
+        """
+        res = shapiro(self.mls_result.resid)
+        normality_hypothesis = ('it is very unlikely that the residuals are normally distributed.' if res.pvalue < 0.05
+                                else 'the normality hypothesis cannot be rejected. '
+                                     'No assumption can be made on normality.')
+        if verbose:
+            print(f'The Shapiro-Wilks statistic is {res.statistic:.3f}')
+            print(f'With a p-value of {res.pvalue:.3f}, we can conclude that {normality_hypothesis}')
+            return
+        else:
+            return res.statistic, res.pvalue
+
+    def plot_residuals(self, save_to=None):
+        """
+        make a residuals plot to check visually for white noise, with abscis the course of time
+
+        save_to: Path, directory to save the residuals plot. Default to None, the plot is not saved
+        """
+        plt.figure(figsize=(8, 3))
+        plt.plot(self.mls_result.resid, lw=0, marker='o', markersize=3, color='k')
+        plt.xticks(rotation=30)
+        if save_to:
+            plt.savefig(save_to / f'plot_residuals_{self.method_used}.png',
+                        bbox_inches='tight'
+                        )
+
+    def plot_autocorr_residuals(self, save_to=None):
+        """
+        make a residuals autocorrelation plot to check visually for white noise
+
+        save_to: Path, directory to save the residuals plot. Default to None, the plot is not saved
+        """
+        sm.graphics.tsa.plot_acf(self.mls_result.resid)
+        plt.title('Auto-correlation of residuals' + f'\nmethod: {self.method_used}')
+        if save_to:
+            plt.savefig(save_to / f'plot_autocorrelation_residuals_{self.method_used}.png',
+                        bbox_inches='tight'
+                        )
+
     def plot_data(self, method=None):
         """ scatter plot to nicely visualise the data
 
         plots are method-dependent
 
+        :param
+        method: str, defaults to None (to use the self.method_to_use attribute). overrides the method plot style.
+            this argument does not replace the argument self.method_to_use
+
         """
-        method_to_use = self.method_used
-        if method:
-            method_to_use = method
+        # if not method is declared (None) use, the last saved in self.method_used
+        method_to_use = self.method_used if method is None else method
 
         if method_to_use == 'Siviour':
             fig, ax = plt.subplots()
@@ -399,15 +524,35 @@ class Coheating:
         """update attribute summary with precedent analysis
 
         """
-        self.summary[self.method_used] = [self.HTC,
-                                          self.extended_coverage_HTC,
-                                          self.HTC - self.extended_coverage_HTC,
-                                          self.HTC + self.extended_coverage_HTC,
-                                          self.error_HTC,
-                                          self.method_used,
-                                          self.AIC,
-                                          self.isol_is_used,
-                                          self.intercept,
-                                          self.data_length
-                                          ]
+        self.__summary[self.method_used] = [self.HTC,
+                                            self.extended_coverage_HTC,
+                                            self.HTC - self.extended_coverage_HTC,
+                                            self.HTC + self.extended_coverage_HTC,
+                                            self.error_HTC,
+                                            self.u_HTC_stat,
+                                            self.u_HTC_calib,
+                                            self.method_used,
+                                            self.data_length,
+                                            self.AIC,
+                                            self.rsquared,
+                                            self.isol_is_used,
+                                            self.intercept,
+                                            self.data_length,
+                                            self.__shapiro_stat,
+                                            self.__shapiro_pval
+                                            ]
         return
+
+    def summary(self, detailed=False):
+        """
+
+        """
+        if not detailed:
+            return self.__summary.loc[('HTC',
+                                       'expanded uncertainty lower bound (k=2)',
+                                       'expanded uncertainty upper bound (k=2)',
+                                       'error %',
+                                       'number of samples',
+                                       ), :]
+        elif detailed:
+            return self.__summary
