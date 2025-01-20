@@ -28,24 +28,24 @@ pip install git+https://github.com/Sarah-Ju/coheating-analysis.git
 ```python
 from coheating import Coheating
 
-coheating_test = Coheating(data['ΔT'],
-                           data['Ptot'],
-                           data['Irr'],
-                           uncertainty_sensor_calibration={'Ti': 0.25, 'Te': 0.5, 'Ph': 1, 'Isol': 1.95}
-                           )
+analysis_MLR = MultilinearModel(heat_power=data['Ptot'],
+                                     delta_temp=data['ΔT'],
+                                     solar_rad=data['Irr'],
+                                     uncertainty_spatial={'Ti':0.5}
+                                    )
 
-# make analysis : by default, a multilinear model is used
-# if the p-value of the solar coefficient is higher than 0.05 (non-significant), a simple model is used instead
-coheating_test.fit()
-
-# in any case, the model by default can be overridden by specifying
-coheating_test.fit(method='multilinear')
-
-# all simple, multilinear and Siviour models can also be run and their results analysed
-coheating_test.fit_all()
+# make analysis
+analysis_MLR.fit()
 
 # return dataframe with summary of regression results
-coheating_test.summary
+analysis_MLR.summary()
+
+# get shapiro-wilks statistic to check norality of residuals
+analysis_MLR.shapiro_wilks_test(verbose=True)
+
+# plot residuals temporaly or with ACF
+analysis_MLR.plot_residuals()
+analysis_MLR.plot_residuals_autocorrelation()
 ```
 ## Examples: Run the notebook
 The notebook in the examples directory is a walk through all features of the package. To run it, you'll need an appropriate kernel.
