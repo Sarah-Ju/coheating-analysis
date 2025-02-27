@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 class RegressionModel:
     def __init__(self, heat_power=None, delta_temp=None, solar_rad=None,
                  uncertainty_sensor_calibration=None, uncertainty_spatial=None,
-                 regression_method=None
+                 regression_method=None, attribute_uncertainty_to=None
                  ):
         """
 
@@ -21,6 +21,9 @@ class RegressionModel:
                                                else uncertainty_sensor_calibration)
         self.uncertainty_spatial = {'Ti': 0.} if uncertainty_spatial is None else uncertainty_spatial
         self.data_length = len(heat_power)
+        self.attribute_uncertainty_to = ({'Ti': 'delta_T', 'Te': 'delta_T', 'Ph': 'Ph', 'Isol':'solarRad'}
+                                         if attribute_uncertainty_to is None
+                                         else attribute_uncertainty_to)
 
         self.mls_result = None
         self.u_HTC_stat = None
@@ -151,13 +154,13 @@ class RegressionModel:
 class MultilinearModel(RegressionModel):
     def __init__(self, heat_power=None, delta_temp=None, solar_rad=None,
                  uncertainty_sensor_calibration=None, uncertainty_spatial=None,
-                 regression_method=None):
+                 regression_method=None, attribute_uncertainty_to=None,):
         """
 
         """
         super().__init__(heat_power, delta_temp, solar_rad,
                          uncertainty_sensor_calibration, uncertainty_spatial,
-                         regression_method)
+                         regression_method, attribute_uncertainty_to)
         self.endog = self.Ph.to_numpy()  # use series values as numpy arrays for the regression
         self.exog = np.array([self.delta_T.to_numpy(), self.solarRad.to_numpy()]).T  # idem ditto
         self.model_name = 'multi-linear'
@@ -189,8 +192,8 @@ class MultilinearModel(RegressionModel):
         # upper bound
         # modify the variable
         for var in [heating_power, delta_temp, solar_rad]:
-            if var.name == input_var_name:
-                var.series += u[input_var_name]
+            if var.name == self.attribute_uncertainty_to[input_var_name]:
+                var += u[input_var_name]
 
         upper_bound = sm.OLS(endog=heating_power.to_numpy(),
                              exog=np.array([delta_temp.to_numpy(), solar_rad.to_numpy()]).T).fit().params[0]
@@ -198,8 +201,8 @@ class MultilinearModel(RegressionModel):
         # lower bound
         # modify the variable
         for var in [heating_power, delta_temp, solar_rad]:
-            if var.name == input_var_name:
-                var.series -= 2 * u[input_var_name]  # on vient d'ajouter u, il faut donc retirer 2 * u
+            if var.name == self.attribute_uncertainty_to[input_var_name]:
+                var -= 2 * u[input_var_name]  # on vient d'ajouter u, il faut donc retirer 2 * u
 
         lower_bound = sm.OLS(endog=heating_power.to_numpy(),
                              exog=np.array([delta_temp.to_numpy(), solar_rad.to_numpy()]).T).fit().params[0]
