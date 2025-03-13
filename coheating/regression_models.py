@@ -345,13 +345,13 @@ class SiviourModel(RegressionModel):
 class LinearModel(RegressionModel):
     def __init__(self, heat_power=None, delta_temp=None, solar_rad=None,
                  uncertainty_sensor_calibration=None, uncertainty_spatial=None,
-                 regression_method=None):
+                 regression_method=None, attribute_uncertainty_to=None,):
         """
 
         """
         super().__init__(heat_power, delta_temp, solar_rad,
                          uncertainty_sensor_calibration, uncertainty_spatial,
-                         regression_method)
+                         regression_method, attribute_uncertainty_to)
         self.endog = self.Ph.to_numpy()  # use series values as numpy arrays for the regression
         self.exog = self.delta_T.to_numpy()  # idem ditto
         self.model_name = 'linear'
@@ -382,8 +382,8 @@ class LinearModel(RegressionModel):
         # upper bound
         # modify the variable
         for var in [heating_power, delta_temp]:
-            if var.name == input_var_name:
-                var.series += u[input_var_name]
+            if var.name == self.attribute_uncertainty_to[input_var_name]:
+                var += u[input_var_name]
 
         upper_bound = sm.OLS(endog=heating_power.to_numpy(),
                              exog=delta_temp.to_numpy()).fit().params[0]
@@ -391,8 +391,8 @@ class LinearModel(RegressionModel):
         # lower bound
         # modify the variable
         for var in [heating_power, delta_temp]:
-            if var.name == input_var_name:
-                var.series -= 2 * u[input_var_name]  # on vient d'ajouter u, il faut donc retirer 2 * u
+            if var.name == self.attribute_uncertainty_to[input_var_name]:
+                var -= 2 * u[input_var_name]  # on vient d'ajouter u, il faut donc retirer 2 * u
 
         lower_bound = sm.OLS(endog=heating_power.to_numpy(),
                              exog=delta_temp.to_numpy()).fit().params[0]
